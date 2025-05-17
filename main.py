@@ -3,7 +3,6 @@ from pydantic import BaseModel
 from typing import List
 from uuid import uuid4
 import sqlite3
-import requests
 
 app = FastAPI()
 
@@ -56,9 +55,6 @@ class GameRecord(BaseModel):
     bet: float
     result: str
     win: bool
-
-class StartMiniAppRequest(BaseModel):
-    chat_id: int
 
 @app.post("/register")
 def register_user(user: UserCreate):
@@ -118,29 +114,3 @@ def user_games(user_id: int):
     rows = cursor.fetchall()
     conn.close()
     return [{"game": g, "bet": b, "result": r, "win": w, "timestamp": t} for g, b, r, w, t in rows]
-
-@app.post("/start-miniapp")
-def start_miniapp_button(data: StartMiniAppRequest):
-    BOT_TOKEN = "YOUR_BOT_TOKEN"  # 🔁 Замени на свой
-    MINI_APP_URL = "https://telegram-mini-app-two-lake.vercel.app/"
-    TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-
-    payload = {
-        "chat_id": data.chat_id,
-        "text": "🎮 Запусти игру как в Bloom!",
-        "reply_markup": {
-            "inline_keyboard": [[
-                {
-                    "text": "Открыть Mini App",
-                    "web_app": {
-                        "url": MINI_APP_URL
-                    }
-                }
-            ]]
-        }
-    }
-
-    response = requests.post(TELEGRAM_API_URL, json=payload)
-    if response.status_code != 200:
-        raise HTTPException(status_code=500, detail="Ошибка отправки кнопки в Telegram")
-    return {"status": "miniapp button sent"}
