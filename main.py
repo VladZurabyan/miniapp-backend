@@ -58,13 +58,19 @@ async def root():
 
 @app.post("/init")
 async def init_user(user: UserCreate):
-    stmt = pg_insert(users).values(id=user.id, username=user.username).on_conflict_do_nothing(index_elements=["id"])
+    stmt = pg_insert(users).values(
+        id=user.id,
+        username=user.username,
+        ton_balance=0.0,
+        usdt_balance=0.0
+    ).on_conflict_do_nothing(index_elements=["id"])
     await database.execute(stmt)
 
     row = await database.fetch_one(users.select().where(users.c.id == user.id))
     if not row:
         raise HTTPException(status_code=500, detail="Пользователь не найден")
     return {"ton": row["ton_balance"], "usdt": row["usdt_balance"]}
+
 
 @app.post("/balance/update")
 async def update_balance(update: BalanceUpdate):
