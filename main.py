@@ -100,3 +100,11 @@ async def get_games(user_id: int):
     query = games.select().where(games.c.user_id == user_id).order_by(games.c.timestamp.desc())
     rows = await database.fetch_all(query)
     return [dict(row) for row in rows]
+
+@app.get("/balance/{user_id}")
+async def get_balance(user_id: int):
+    row = await database.fetch_one(users.select().where(users.c.id == user_id))
+    if not row:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"ton": row["ton_balance"], "usdt": row["usdt_balance"]}
+
