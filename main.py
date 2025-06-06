@@ -2,24 +2,16 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from uuid import uuid4
-import asyncio
 
-from sqlalchemy.dialects.postgresql import insert as pg_insert  # ✅
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from db import database, metadata, engine
 from models import users, games
 
-@app.get("/drop-tables")
-async def drop_tables():
-    metadata.drop_all(engine)
-    return {"status": "tables dropped"}
-
-
-# ✅ Создаём таблицы (один раз)
-metadata.create_all(engine)
-
+# ✅ Инициализация FastAPI
 app = FastAPI()
 
+# ✅ CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://telegram-mini-app-two-lake.vercel.app"],
@@ -54,12 +46,20 @@ class GameRecord(BaseModel):
     result: str
     win: bool
 
+# ✅ Роут для сброса таблиц (временно)
+@app.get("/drop-tables")
+async def drop_tables():
+    metadata.drop_all(engine)
+    metadata.create_all(engine)
+    return {"status": "tables dropped"}
+
+# ✅ Создаём таблицы (если не существует)
+metadata.create_all(engine)
+
 # ✅ Роуты
 @app.get("/")
 async def root():
     return {"status": "Backend работает через PostgreSQL!"}
-
-
 
 @app.post("/init")
 async def init_user(user: UserCreate):
@@ -70,8 +70,6 @@ async def init_user(user: UserCreate):
     if not row:
         raise HTTPException(status_code=500, detail="Пользователь не найден")
     return {"ton": row["ton_balance"], "usdt": row["usdt_balance"]}
-
-
 
 @app.post("/balance/update")
 async def update_balance(update: BalanceUpdate):
