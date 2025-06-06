@@ -114,3 +114,8 @@ def user_games(user_id: int):
     rows = cursor.fetchall()
     conn.close()
     return [{"game": g, "bet": b, "result": r, "win": w, "timestamp": t} for g, b, r, w, t in rows]
+
+@app.get("/")
+def root():
+    return {"status": "Backend работает!"}
+
