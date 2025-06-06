@@ -4,10 +4,12 @@ from pydantic import BaseModel
 from uuid import uuid4
 import asyncio
 
+from sqlalchemy.dialects.postgresql import insert as pg_insert  # ✅
+
 from db import database, metadata, engine
 from models import users, games
 
-# Создаём таблицы (один раз)
+# ✅ Создаём таблицы (один раз)
 metadata.create_all(engine)
 
 app = FastAPI()
@@ -20,7 +22,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Подключение к БД
+# ✅ Подключение к БД
 @app.on_event("startup")
 async def startup():
     await database.connect()
@@ -29,7 +31,7 @@ async def startup():
 async def shutdown():
     await database.disconnect()
 
-# 📦 Pydantic модели
+# ✅ Pydantic модели
 class UserCreate(BaseModel):
     id: int
     username: str
@@ -57,15 +59,13 @@ async def init_user(user: UserCreate):
     try:
         await database.execute(query)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"DB error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при добавлении пользователя: {str(e)}")
 
-    # Получение баланса
     select = users.select().where(users.c.id == user.id)
     row = await database.fetch_one(select)
     if not row:
         raise HTTPException(status_code=500, detail="Пользователь не найден")
     return {"ton": row["ton_balance"], "usdt": row["usdt_balance"]}
-
 
 @app.post("/balance/update")
 async def update_balance(update: BalanceUpdate):
