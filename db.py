@@ -1,7 +1,15 @@
+import os
+from dotenv import load_dotenv
 from databases import Database
 from sqlalchemy import create_engine, MetaData
 
-DATABASE_URL = "postgresql://admin:kfL519NsqWjfOgRe5eUQqZF3QFSgefNX@dpg-d11gaf0gjchc73807k4g-a.oregon-postgres.render.com/miniapp"
+# Загружаем переменные окружения из .env
+load_dotenv()
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+if not DATABASE_URL:
+    raise ValueError("❌ DATABASE_URL не задан в окружении!")
 
 database = Database(DATABASE_URL)
 metadata = MetaData()
