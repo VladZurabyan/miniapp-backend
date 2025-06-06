@@ -10,7 +10,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://telegram-mini-app-two-lake.vercel.app/"],  # Можно указать конкретные домены
+    allow_origins=["https://telegram-mini-app-two-lake.vercel.app"],  # Можно указать конкретные домены
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
