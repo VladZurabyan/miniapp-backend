@@ -83,17 +83,42 @@ async def update_balance(update: BalanceUpdate):
 
 @app.post("/game")
 async def record_game(game: GameRecord):
-    game_id = str(uuid4())
-    query = games.insert().values(
-        id=game_id,
-        user_id=game.user_id,
-        game=game.game,
-        bet=game.bet,
-        result=game.result,
-        win=game.win
+    # Получаем текущие балансы
+    row = await database.fetch_one(users.select().where(users.c.id == game.user_id))
+    if not row:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Определяем валюту по полю result (или передавай явно в GameRecord)
+    currency = "ton" if game.result.lower().startswith("ton") else "usdt"
+    balance_col = users.c.ton_balance if currency == "ton" else users.c.usdt_balance
+    balance = row["ton_balance"] if currency == "ton" else row["usdt_balance"]
+
+    # Проверка баланса
+    if game.bet > balance:
+        raise HTTPException(status_code=400, detail="Недостаточно средств")
+
+    # Списываем ставку
+    await database.execute(
+        users.update()
+        .where(users.c.id == game.user_id)
+        .values({balance_col: balance - game.bet})
     )
-    await database.execute(query)
+
+    # Записываем игру
+    game_id = str(uuid4())
+    await database.execute(
+        games.insert().values(
+            id=game_id,
+            user_id=game.user_id,
+            game=game.game,
+            bet=game.bet,
+            result=game.result,
+            win=game.win
+        )
+    )
+
     return {"status": "recorded", "game_id": game_id}
+
 
 @app.get("/games/{user_id}")
 async def get_games(user_id: int):
