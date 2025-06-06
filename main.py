@@ -123,3 +123,18 @@ def user_games(user_id: int):
         cursor.execute("SELECT game, bet, result, win, timestamp FROM games WHERE user_id=? ORDER BY timestamp DESC", (user_id,))
         rows = cursor.fetchall()
         return [{"game": g, "bet": b, "result": r, "win": w, "timestamp": t} for g, b, r, w, t in rows]
+
+@app.post("/init")
+def init_user(user: UserCreate):
+    with get_db() as conn:
+        cursor = conn.cursor()
+        # Создание пользователя, если его ещё нет
+        cursor.execute("INSERT OR IGNORE INTO users (id, username) VALUES (?, ?)", (user.id, user.username))
+        # Получение баланса
+        cursor.execute("SELECT ton_balance, usdt_balance FROM users WHERE id=?", (user.id,))
+        row = cursor.fetchone()
+        if row:
+            return {"ton": row[0], "usdt": row[1]}
+        else:
+            raise HTTPException(status_code=500, detail="Ошибка при инициализации пользователя")
+
