@@ -1,15 +1,11 @@
 import os
-from dotenv import load_dotenv
 from databases import Database
 from sqlalchemy import create_engine, MetaData
 
-# Загружаем переменные окружения из .env
-load_dotenv()
-
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = os.getenv("DATABASE_URL")  # ⚠️ Получаем из окружения
 
 if not DATABASE_URL:
-    raise ValueError("❌ DATABASE_URL не задан в окружении!")
+    raise RuntimeError("❌ DATABASE_URL is not set!")
 
 database = Database(DATABASE_URL)
 metadata = MetaData()
