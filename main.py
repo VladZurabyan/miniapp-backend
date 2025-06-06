@@ -53,17 +53,18 @@ class GameRecord(BaseModel):
 async def root():
     return {"status": "Backend работает через PostgreSQL!"}
 
+
+
 @app.post("/init")
 async def init_user(user: UserCreate):
-    query = pg_insert(users).values(id=user.id, username=user.username).on_conflict_do_nothing(index_elements=["id"])
-    await database.execute(query)
+    stmt = pg_insert(users).values(id=user.id, username=user.username).on_conflict_do_nothing(index_elements=["id"])
+    await database.execute(stmt)
 
-    # Получение баланса
-    select = users.select().where(users.c.id == user.id)
-    row = await database.fetch_one(select)
+    row = await database.fetch_one(users.select().where(users.c.id == user.id))
     if not row:
         raise HTTPException(status_code=500, detail="Пользователь не найден")
     return {"ton": row["ton_balance"], "usdt": row["usdt_balance"]}
+
 
 
 @app.post("/balance/update")
