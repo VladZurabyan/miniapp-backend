@@ -56,16 +56,15 @@ async def root():
 @app.post("/init")
 async def init_user(user: UserCreate):
     query = pg_insert(users).values(id=user.id, username=user.username).on_conflict_do_nothing(index_elements=["id"])
-    try:
-        await database.execute(query)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Ошибка при добавлении пользователя: {str(e)}")
+    await database.execute(query)
 
+    # Получение баланса
     select = users.select().where(users.c.id == user.id)
     row = await database.fetch_one(select)
     if not row:
         raise HTTPException(status_code=500, detail="Пользователь не найден")
     return {"ton": row["ton_balance"], "usdt": row["usdt_balance"]}
+
 
 @app.post("/balance/update")
 async def update_balance(update: BalanceUpdate):
