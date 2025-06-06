@@ -1,54 +1,35 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List
 from uuid import uuid4
-import sqlite3
+import asyncio
+
+from db import database, metadata, engine
+from models import users, games
+
+# Создаём таблицы (один раз)
+metadata.create_all(engine)
 
 app = FastAPI()
 
-# 🔓 CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://telegram-mini-app-two-lake.vercel.app"],  # Без "/" на конце
+    allow_origins=["https://telegram-mini-app-two-lake.vercel.app"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-DB_PATH = "database.db"
+# Подключение к БД
+@app.on_event("startup")
+async def startup():
+    await database.connect()
 
-def get_db():
-    return sqlite3.connect(DB_PATH, check_same_thread=False)
+@app.on_event("shutdown")
+async def shutdown():
+    await database.disconnect()
 
-# 🗃️ Инициализация БД
-def init_db():
-    with get_db() as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY,
-            username TEXT,
-            ton_balance REAL DEFAULT 0,
-            usdt_balance REAL DEFAULT 0
-        );
-        """)
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS games (
-            id TEXT PRIMARY KEY,
-            user_id INTEGER,
-            game TEXT,
-            bet REAL,
-            result TEXT,
-            win BOOLEAN,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-        """)
-        conn.commit()
-
-init_db()
-
-# 📦 Модели
+# 📦 Pydantic модели
 class UserCreate(BaseModel):
     id: int
     username: str
@@ -67,74 +48,48 @@ class GameRecord(BaseModel):
 
 # ✅ Роуты
 @app.get("/")
-def root():
-    return {"status": "Backend работает!"}
+async def root():
+    return {"status": "Backend работает через PostgreSQL!"}
 
-@app.post("/register")
-def register_user(user: UserCreate):
+@app.post("/init")
+async def init_user(user: UserCreate):
+    query = users.insert().values(id=user.id, username=user.username).prefix_with("ON CONFLICT DO NOTHING")
     try:
-        with get_db() as conn:
-            cursor = conn.cursor()
-            cursor.execute("INSERT INTO users (id, username) VALUES (?, ?)", (user.id, user.username))
-            conn.commit()
-        return {"status": "registered"}
-    except sqlite3.IntegrityError:
-        raise HTTPException(status_code=400, detail="User already exists")
-
-@app.get("/balance/{user_id}")
-def get_balance(user_id: int):
-    with get_db() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT ton_balance, usdt_balance FROM users WHERE id=?", (user_id,))
-        row = cursor.fetchone()
-        if row:
-            return {"ton": row[0], "usdt": row[1]}
-        else:
-            raise HTTPException(status_code=404, detail="User not found")
+        await database.execute(query)
+    except:
+        pass
+    # Получение баланса
+    select = users.select().where(users.c.id == user.id)
+    row = await database.fetch_one(select)
+    if not row:
+        raise HTTPException(status_code=500, detail="Пользователь не найден")
+    return {"ton": row["ton_balance"], "usdt": row["usdt_balance"]}
 
 @app.post("/balance/update")
-def update_balance(update: BalanceUpdate):
+async def update_balance(update: BalanceUpdate):
     if update.currency not in ["ton", "usdt"]:
         raise HTTPException(status_code=400, detail="Invalid currency")
-
-    column = f"{update.currency}_balance"
-    with get_db() as conn:
-        cursor = conn.cursor()
-        cursor.execute(f"UPDATE users SET {column} = {column} + ? WHERE id=?", (update.amount, update.id))
-        conn.commit()
+    col = users.c.ton_balance if update.currency == "ton" else users.c.usdt_balance
+    query = users.update().where(users.c.id == update.id).values({col: col + update.amount})
+    await database.execute(query)
     return {"status": "updated"}
 
 @app.post("/game")
-def record_game(game: GameRecord):
+async def record_game(game: GameRecord):
     game_id = str(uuid4())
-    with get_db() as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-        INSERT INTO games (id, user_id, game, bet, result, win)
-        VALUES (?, ?, ?, ?, ?, ?)
-        """, (game_id, game.user_id, game.game, game.bet, game.result, game.win))
-        conn.commit()
+    query = games.insert().values(
+        id=game_id,
+        user_id=game.user_id,
+        game=game.game,
+        bet=game.bet,
+        result=game.result,
+        win=game.win
+    )
+    await database.execute(query)
     return {"status": "recorded", "game_id": game_id}
 
 @app.get("/games/{user_id}")
-def user_games(user_id: int):
-    with get_db() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT game, bet, result, win, timestamp FROM games WHERE user_id=? ORDER BY timestamp DESC", (user_id,))
-        rows = cursor.fetchall()
-        return [{"game": g, "bet": b, "result": r, "win": w, "timestamp": t} for g, b, r, w, t in rows]
-
-@app.post("/init")
-def init_user(user: UserCreate):
-    with get_db() as conn:
-        cursor = conn.cursor()
-        # Создание пользователя, если его ещё нет
-        cursor.execute("INSERT OR IGNORE INTO users (id, username) VALUES (?, ?)", (user.id, user.username))
-        # Получение баланса
-        cursor.execute("SELECT ton_balance, usdt_balance FROM users WHERE id=?", (user.id,))
-        row = cursor.fetchone()
-        if row:
-            return {"ton": row[0], "usdt": row[1]}
-        else:
-            raise HTTPException(status_code=500, detail="Ошибка при инициализации пользователя")
-
+async def get_games(user_id: int):
+    query = games.select().where(games.c.user_id == user_id).order_by(games.c.timestamp.desc())
+    rows = await database.fetch_all(query)
+    return [dict(row) for row in rows]
