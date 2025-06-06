@@ -83,21 +83,26 @@ async def update_balance(update: BalanceUpdate):
 
 @app.post("/game")
 async def record_game(game: GameRecord):
+    # Получаем текущие балансы
+    row = await database.fetch_one(users.select().where(users.c.id == game.user_id))
+    if not row:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Определяем валюту по полю result (или передавай явно в GameRecord)
     currency = "ton" if game.result.lower().startswith("ton") else "usdt"
     balance_col = users.c.ton_balance if currency == "ton" else users.c.usdt_balance
+    balance = row["ton_balance"] if currency == "ton" else row["usdt_balance"]
 
-    # Атомарная попытка списания
-    query = (
+    # Проверка баланса
+    if game.bet > balance:
+        raise HTTPException(status_code=400, detail="Недостаточно средств")
+
+    # Списываем ставку
+    await database.execute(
         users.update()
         .where(users.c.id == game.user_id)
-        .where(balance_col >= game.bet)
-        .values({balance_col: balance_col - game.bet})
-        .returning(balance_col)
+        .values({balance_col: balance - game.bet})
     )
-    updated = await database.fetch_one(query)
-
-    if not updated:
-        raise HTTPException(status_code=400, detail="Недостаточно средств или пользователь не найден")
 
     # Записываем игру
     game_id = str(uuid4())
