@@ -9,6 +9,12 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert  # ✅
 from db import database, metadata, engine
 from models import users, games
 
+@app.get("/drop-tables")
+async def drop_tables():
+    metadata.drop_all(engine)
+    return {"status": "tables dropped"}
+
+
 # ✅ Создаём таблицы (один раз)
 metadata.create_all(engine)
 
