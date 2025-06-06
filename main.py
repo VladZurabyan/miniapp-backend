@@ -3,8 +3,19 @@ from pydantic import BaseModel
 from typing import List
 from uuid import uuid4
 import sqlite3
-
+from fastapi.middleware.cors import CORSMiddleware
 app = FastAPI()
+
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://telegram-mini-app-two-lake.vercel.app/"],  # Можно указать конкретные домены
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 DB_PATH = "database.db"
 
