@@ -72,7 +72,7 @@ async def init_user(user: UserCreate):
     return {"ton": row["ton_balance"], "usdt": row["usdt_balance"]}
 
 
-@app.post("/balance/update")
+@app.post("/balance/add")
 async def update_balance(update: BalanceUpdate):
     if update.currency not in ["ton", "usdt"]:
         raise HTTPException(status_code=400, detail="Invalid currency")
@@ -83,26 +83,21 @@ async def update_balance(update: BalanceUpdate):
 
 @app.post("/game")
 async def record_game(game: GameRecord):
-    # Получаем текущие балансы
-    row = await database.fetch_one(users.select().where(users.c.id == game.user_id))
-    if not row:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    # Определяем валюту по полю result (или передавай явно в GameRecord)
     currency = "ton" if game.result.lower().startswith("ton") else "usdt"
     balance_col = users.c.ton_balance if currency == "ton" else users.c.usdt_balance
-    balance = row["ton_balance"] if currency == "ton" else row["usdt_balance"]
 
-    # Проверка баланса
-    if game.bet > balance:
-        raise HTTPException(status_code=400, detail="Недостаточно средств")
-
-    # Списываем ставку
-    await database.execute(
+    # Атомарная попытка списания
+    query = (
         users.update()
         .where(users.c.id == game.user_id)
-        .values({balance_col: balance - game.bet})
+        .where(balance_col >= game.bet)
+        .values({balance_col: balance_col - game.bet})
+        .returning(balance_col)
     )
+    updated = await database.fetch_one(query)
+
+    if not updated:
+        raise HTTPException(status_code=400, detail="Недостаточно средств или пользователь не найден")
 
     # Записываем игру
     game_id = str(uuid4())
@@ -118,6 +113,18 @@ async def record_game(game: GameRecord):
     )
 
     return {"status": "recorded", "game_id": game_id}
+
+@app.post("/balance/prize")
+async def add_prize(update: BalanceUpdate):
+    if update.currency not in ["ton", "usdt"]:
+        raise HTTPException(status_code=400, detail="Invalid currency")
+
+    col = users.c.ton_balance if update.currency == "ton" else users.c.usdt_balance
+
+    query = users.update().where(users.c.id == update.id).values({col: col + update.amount}).returning(col)
+    result = await database.fetch_one(query)
+
+    return {"status": "prize_added", "new_balance": result[0]}
 
 
 
