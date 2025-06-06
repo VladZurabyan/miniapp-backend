@@ -86,11 +86,10 @@ async def update_balance(update: BalanceUpdate):
 @app.post("/game")
 async def record_game(game: GameRecord):
     currency = game.currency.lower()
-if currency not in ["ton", "usdt"]:
-    raise HTTPException(status_code=400, detail="Invalid currency")
+    if currency not in ["ton", "usdt"]:
+        raise HTTPException(status_code=400, detail="Invalid currency")
 
     balance_col = users.c.ton_balance if currency == "ton" else users.c.usdt_balance
-
 
     # Атомарная попытка списания
     query = (
@@ -119,6 +118,7 @@ if currency not in ["ton", "usdt"]:
     )
 
     return {"status": "recorded", "game_id": game_id}
+
 
 @app.post("/balance/prize")
 async def add_prize(update: BalanceUpdate):
