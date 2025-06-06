@@ -46,12 +46,7 @@ class GameRecord(BaseModel):
     result: str
     win: bool
 
-# ✅ Роут для сброса таблиц (временно)
-@app.get("/drop-tables")
-async def drop_tables():
-    metadata.drop_all(engine)
-    metadata.create_all(engine)
-    return {"status": "tables dropped"}
+
 
 # ✅ Создаём таблицы (если не существует)
 metadata.create_all(engine)
@@ -94,4 +89,8 @@ async def record_game(game: GameRecord):
     await database.execute(query)
     return {"status": "recorded", "game_id": game_id}
 
-
+@app.get("/games/{user_id}")
+async def get_games(user_id: int):
+    query = games.select().where(games.c.user_id == user_id).order_by(games.c.timestamp.desc())
+    rows = await database.fetch_all(query)
+    return [dict(row) for row in rows]
