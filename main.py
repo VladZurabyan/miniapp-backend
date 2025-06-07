@@ -43,10 +43,12 @@ class GameRecord(BaseModel):
     user_id: int
     game: str
     bet: float
-    result: str
+    result: str  # "pending", "win", "lose"
     win: bool
     currency: str
-    prize_amount: float = 0.0  # ⬅️ добавлено
+    prize_amount: float = 0.0
+    final: bool = True  # 👈 добавили
+
 
 
 
@@ -93,20 +95,21 @@ async def record_game(game: GameRecord):
 
     balance_col = users.c.ton_balance if currency == "ton" else users.c.usdt_balance
 
-    # 1. Атомарная попытка списания ставки
-    query = (
-        users.update()
-        .where(users.c.id == game.user_id)
-        .where(balance_col >= game.bet)
-        .values({balance_col: balance_col - game.bet})
-        .returning(balance_col)
-    )
-    updated = await database.fetch_one(query)
+    if game.result == "pending":
+        # Только списываем ставку
+        query = (
+            users.update()
+            .where(users.c.id == game.user_id)
+            .where(balance_col >= game.bet)
+            .values({balance_col: balance_col - game.bet})
+            .returning(balance_col)
+        )
+        updated = await database.fetch_one(query)
+        if not updated:
+            raise HTTPException(status_code=400, detail="Недостаточно средств")
+        return await get_balance(game.user_id)
 
-    if not updated:
-        raise HTTPException(status_code=400, detail="Недостаточно средств или пользователь не найден")
-
-    # 2. Записываем игру
+    # Финальный результат
     game_id = str(uuid4())
     await database.execute(
         games.insert().values(
@@ -119,7 +122,6 @@ async def record_game(game: GameRecord):
         )
     )
 
-    # 3. Если победа и есть приз — начисляем его
     if game.win and game.prize_amount > 0:
         await database.execute(
             users.update()
@@ -127,14 +129,8 @@ async def record_game(game: GameRecord):
             .values({balance_col: balance_col + game.prize_amount})
         )
 
-    # 4. Возвращаем актуальный баланс
-    row = await database.fetch_one(users.select().where(users.c.id == game.user_id))
-    return {
-        "status": "recorded",
-        "game_id": game_id,
-        "ton": row["ton_balance"],
-        "usdt": row["usdt_balance"]
-    }
+    return await get_balance(game.user_id)
+
 
 
 @app.post("/balance/prize")
