@@ -177,27 +177,27 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 
 @app.post("/balance/subscribe")
 async def subscribe_balance(data: BalanceSubscribe):
-    user_id = str(data.user_id)
+    user_id = data.user_id
     client_ton = round(data.current_ton, 2)
     client_usdt = round(data.current_usdt, 2)
 
     logging.info(f"📡 Подписка от user_id={user_id} | client TON={client_ton}, USDT={client_usdt}")
 
-    for i in range(60):  # ⏳ до 60 сек
+    for _ in range(60):
         await asyncio.sleep(1)
 
-        latest = user_balances_cache.get(user_id)
-        if latest:
-            ton = round(latest["ton"], 2)
-            usdt = round(latest["usdt"], 2)
+        row = await database.fetch_one(users.select().where(users.c.id == user_id))
+        if row:
+            ton = round(float(row["ton_balance"]), 2)
+            usdt = round(float(row["usdt_balance"]), 2)
 
             if ton != client_ton or usdt != client_usdt:
-                logging.info(f"🔄 Обновление для user_id={user_id} → TON={ton}, USDT={usdt}")
+                logging.info(f"🔄 Баланс обновился у user_id={user_id} → TON={ton}, USDT={usdt}")
                 return {
                     "update": True,
                     "ton": ton,
                     "usdt": usdt
                 }
 
-    logging.info(f"⏱ Нет изменений за 60 сек для user_id={user_id}")
+    logging.info(f"⏱ Нет изменений за 60 сек у user_id={user_id}")
     return {"update": False}
