@@ -57,6 +57,9 @@ class BalanceSubscribe(BaseModel):
     current_ton: float
     current_usdt: float
 
+class UserIdOnly(BaseModel):
+    id: int
+
 # 🧠 Хранилище балансов в памяти
 user_balances_cache = {}
 
@@ -201,3 +204,17 @@ async def subscribe_balance(data: BalanceSubscribe):
 
     logging.info(f"⏱ Нет изменений за 60 сек у user_id={user_id}")
     return {"update": False}
+
+
+
+
+@app.post("/balance/force")
+async def force_balance(user: UserIdOnly):
+    row = await database.fetch_one(users.select().where(users.c.id == user.id))
+    if not row:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {
+        "ton": float(row["ton_balance"]),
+        "usdt": float(row["usdt_balance"])
+    }
+
