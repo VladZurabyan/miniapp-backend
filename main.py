@@ -174,14 +174,21 @@ async def get_balance(user_id: int):
 @app.post("/balance/subscribe")
 async def subscribe_balance(data: BalanceSubscribe):
     user_id = str(data.user_id)
-    client_ton = data.current_ton
-    client_usdt = data.current_usdt
+    client_ton = round(data.current_ton, 2)
+    client_usdt = round(data.current_usdt, 2)
 
     for _ in range(60):
         await asyncio.sleep(1)
         latest = user_balances_cache.get(user_id)
         if latest:
-            if latest["ton"] != client_ton or latest["usdt"] != client_usdt:
-                return latest
+            ton = round(latest["ton"], 2)
+            usdt = round(latest["usdt"], 2)
+            if ton != client_ton or usdt != client_usdt:
+                return {
+                    "update": True,
+                    "ton": ton,
+                    "usdt": usdt
+                }
 
     return {"update": False}
+
