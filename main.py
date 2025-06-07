@@ -183,8 +183,8 @@ async def subscribe_balance(data: BalanceSubscribe):
 
     logging.info(f"📡 Подписка от user_id={user_id} | client TON={client_ton}, USDT={client_usdt}")
 
-    for _ in range(60):
-        await asyncio.sleep(1)
+    for _ in range(30):
+        await asyncio.sleep(0.1)
 
         row = await database.fetch_one(users.select().where(users.c.id == user_id))
         if row:
