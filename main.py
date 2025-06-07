@@ -47,7 +47,7 @@ class GameRecord(BaseModel):
     win: bool
     currency: str
     prize_amount: float = 0.0
-    final: bool = True  # 👈 добавили
+    final: bool = False  # 👈 добавили
 
 
 
@@ -95,8 +95,8 @@ async def record_game(game: GameRecord):
 
     balance_col = users.c.ton_balance if currency == "ton" else users.c.usdt_balance
 
-    if game.result == "pending":
-        # Только списываем ставку
+    if not game.final:
+        # ✅ Этап 1: списание ставки
         query = (
             users.update()
             .where(users.c.id == game.user_id)
@@ -107,9 +107,17 @@ async def record_game(game: GameRecord):
         updated = await database.fetch_one(query)
         if not updated:
             raise HTTPException(status_code=400, detail="Недостаточно средств")
-        return await get_balance(game.user_id)
 
-    # Финальный результат
+    else:
+        # ✅ Этап 2: начисление выигрыша, если победа
+        if game.win and game.prize_amount > 0:
+            await database.execute(
+                users.update()
+                .where(users.c.id == game.user_id)
+                .values({balance_col: balance_col + game.prize_amount})
+            )
+
+    # 🧾 Записываем результат игры
     game_id = str(uuid4())
     await database.execute(
         games.insert().values(
@@ -122,14 +130,8 @@ async def record_game(game: GameRecord):
         )
     )
 
-    if game.win and game.prize_amount > 0:
-        await database.execute(
-            users.update()
-            .where(users.c.id == game.user_id)
-            .values({balance_col: balance_col + game.prize_amount})
-        )
-
     return await get_balance(game.user_id)
+
 
 
 
