@@ -1,7 +1,9 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from uuid import uuid4
+import asyncio
 
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -49,10 +51,13 @@ class GameRecord(BaseModel):
     prize_amount: float = 0.0
     final: bool = False  # 👈 добавили
 
+class BalanceSubscribe(BaseModel):
+    user_id: int
+    current_ton: float
+    current_usdt: float
 
-
-
-
+# 🧠 Хранилище балансов в памяти
+user_balances_cache = {}
 
 # ✅ Создаём таблицы (если не существует)
 metadata.create_all(engine)
@@ -77,7 +82,6 @@ async def init_user(user: UserCreate):
         raise HTTPException(status_code=500, detail="Пользователь не найден")
     return {"ton": row["ton_balance"], "usdt": row["usdt_balance"]}
 
-
 @app.post("/balance/add")
 async def update_balance(update: BalanceUpdate):
     if update.currency not in ["ton", "usdt"]:
@@ -85,6 +89,11 @@ async def update_balance(update: BalanceUpdate):
     col = users.c.ton_balance if update.currency == "ton" else users.c.usdt_balance
     query = users.update().where(users.c.id == update.id).values({col: col + update.amount})
     await database.execute(query)
+
+    # 💾 Обновляем кэш
+    row = await database.fetch_one(users.select().where(users.c.id == update.id))
+    user_balances_cache[str(update.id)] = {"ton": row["ton_balance"], "usdt": row["usdt_balance"]}
+
     return {"status": "updated"}
 
 @app.post("/game")
@@ -96,7 +105,6 @@ async def record_game(game: GameRecord):
     balance_col = users.c.ton_balance if currency == "ton" else users.c.usdt_balance
 
     if not game.final:
-        # ✅ Этап 1: списание ставки
         query = (
             users.update()
             .where(users.c.id == game.user_id)
@@ -107,9 +115,7 @@ async def record_game(game: GameRecord):
         updated = await database.fetch_one(query)
         if not updated:
             raise HTTPException(status_code=400, detail="Недостаточно средств")
-
     else:
-        # ✅ Этап 2: начисление выигрыша, если победа
         if game.win and game.prize_amount > 0:
             await database.execute(
                 users.update()
@@ -117,7 +123,7 @@ async def record_game(game: GameRecord):
                 .values({balance_col: balance_col + game.prize_amount})
             )
 
-    # 🧾 Записываем результат игры
+    # 🧾 Записываем игру
     game_id = str(uuid4())
     await database.execute(
         games.insert().values(
@@ -130,10 +136,11 @@ async def record_game(game: GameRecord):
         )
     )
 
+    # 💾 Обновляем кэш
+    row = await database.fetch_one(users.select().where(users.c.id == game.user_id))
+    user_balances_cache[str(game.user_id)] = {"ton": row["ton_balance"], "usdt": row["usdt_balance"]}
+
     return await get_balance(game.user_id)
-
-
-
 
 @app.post("/balance/prize")
 async def add_prize(update: BalanceUpdate):
@@ -145,9 +152,11 @@ async def add_prize(update: BalanceUpdate):
     query = users.update().where(users.c.id == update.id).values({col: col + update.amount}).returning(col)
     result = await database.fetch_one(query)
 
+    # 💾 Обновляем кэш
+    row = await database.fetch_one(users.select().where(users.c.id == update.id))
+    user_balances_cache[str(update.id)] = {"ton": row["ton_balance"], "usdt": row["usdt_balance"]}
+
     return {"status": "prize_added", "new_balance": result[0]}
-
-
 
 @app.get("/games/{user_id}")
 async def get_games(user_id: int):
@@ -162,3 +171,17 @@ async def get_balance(user_id: int):
         raise HTTPException(status_code=404, detail="User not found")
     return {"ton": row["ton_balance"], "usdt": row["usdt_balance"]}
 
+@app.post("/balance/subscribe")
+async def subscribe_balance(data: BalanceSubscribe):
+    user_id = str(data.user_id)
+    client_ton = data.current_ton
+    client_usdt = data.current_usdt
+
+    for _ in range(60):
+        await asyncio.sleep(1)
+        latest = user_balances_cache.get(user_id)
+        if latest:
+            if latest["ton"] != client_ton or latest["usdt"] != client_usdt:
+                return latest
+
+    return {"update": False}
