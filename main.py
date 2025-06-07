@@ -4,6 +4,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from uuid import uuid4
 import asyncio
+import logging
 
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -171,24 +172,32 @@ async def get_balance(user_id: int):
         raise HTTPException(status_code=404, detail="User not found")
     return {"ton": row["ton_balance"], "usdt": row["usdt_balance"]}
 
+# ✅ Настройка логирования один раз (в начале backend)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+
 @app.post("/balance/subscribe")
 async def subscribe_balance(data: BalanceSubscribe):
     user_id = str(data.user_id)
     client_ton = round(data.current_ton, 2)
     client_usdt = round(data.current_usdt, 2)
 
-    for _ in range(60):
+    logging.info(f"📡 Подписка от user_id={user_id} | client TON={client_ton}, USDT={client_usdt}")
+
+    for i in range(60):  # ⏳ до 60 сек
         await asyncio.sleep(1)
+
         latest = user_balances_cache.get(user_id)
         if latest:
             ton = round(latest["ton"], 2)
             usdt = round(latest["usdt"], 2)
+
             if ton != client_ton or usdt != client_usdt:
+                logging.info(f"🔄 Обновление для user_id={user_id} → TON={ton}, USDT={usdt}")
                 return {
                     "update": True,
                     "ton": ton,
                     "usdt": usdt
                 }
 
+    logging.info(f"⏱ Нет изменений за 60 сек для user_id={user_id}")
     return {"update": False}
-
