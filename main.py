@@ -8,8 +8,8 @@ import logging
 
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from db import database, metadata, engine
-from models import users, games
+from models import users, games, safe_sessions  
+from random import randint
 
 # ✅ Инициализация FastAPI
 app = FastAPI()
@@ -59,6 +59,21 @@ class BalanceSubscribe(BaseModel):
 
 class UserIdOnly(BaseModel):
     id: int
+
+class SafeStart(BaseModel):
+    user_id: int
+    currency: str
+    bet: float
+
+class SafeGuess(BaseModel):
+    session_id: str
+    user_id: int
+    guess: list[int]
+
+class SafeHint(BaseModel):
+    session_id: str
+    user_id: int
+
 
 # 🧠 Хранилище балансов в памяти
 user_balances_cache = {}
@@ -218,3 +233,192 @@ async def force_balance(user: UserIdOnly):
         "usdt": float(row["usdt_balance"])
     }
 
+@app.post("/safe/start")
+async def start_safe_game(data: SafeStart):
+    currency = data.currency.lower()
+    if currency not in ["ton", "usdt"]:
+        raise HTTPException(status_code=400, detail="Неверная валюта")
+
+    balance_col = users.c.ton_balance if currency == "ton" else users.c.usdt_balance
+
+    # Проверка баланса
+    query = users.select().where(users.c.id == data.user_id)
+    user = await database.fetch_one(query)
+    if not user:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+    current_balance = float(user[balance_col.name])
+    if current_balance < data.bet:
+        raise HTTPException(status_code=400, detail="Недостаточно средств")
+
+    # Списание ставки
+    await database.execute(
+        users.update()
+        .where(users.c.id == data.user_id)
+        .values({balance_col: balance_col - data.bet})
+    )
+
+    # Генерация кода
+    code = [randint(0, 9) for _ in range(3)]
+    session_id = str(uuid4())
+
+    # Запись в safe_sessions
+    await database.execute(
+        safe_sessions.insert().values(
+            id=session_id,
+            user_id=data.user_id,
+            currency=currency,
+            bet=data.bet,
+            code=code,
+            attempts=0,
+            used_hint=False,
+            is_finished=False
+        )
+    )
+
+    # Обновление кэша баланса
+    row = await database.fetch_one(users.select().where(users.c.id == data.user_id))
+    user_balances_cache[str(data.user_id)] = {"ton": row["ton_balance"], "usdt": row["usdt_balance"]}
+
+    # Запись в игры как pending
+    await database.execute(
+        games.insert().values(
+            id=session_id,
+            user_id=data.user_id,
+            game="Safe Cracker",
+            bet=data.bet,
+            result="pending",
+            win=False
+        )
+    )
+
+    return {"session_id": session_id}
+
+@app.post("/safe/guess")
+async def safe_guess(data: SafeGuess):
+    session = await database.fetch_one(safe_sessions.select().where(safe_sessions.c.id == data.session_id))
+    if not session:
+        raise HTTPException(status_code=404, detail="Сессия не найдена")
+    if session["is_finished"]:
+        raise HTTPException(status_code=400, detail="Игра уже завершена")
+
+    correct_code = session["code"]
+    attempts = session["attempts"]
+    bet = session["bet"]
+    currency = session["currency"]
+
+    if attempts >= 3:
+        raise HTTPException(status_code=400, detail="Попытки закончились")
+
+    # Проверка кода
+    is_win = data.guess == correct_code
+    updated_attempts = attempts + 1
+
+    if is_win:
+        prize = bet * 3
+        balance_col = users.c.ton_balance if currency == "ton" else users.c.usdt_balance
+
+        # Обновляем баланс
+        await database.execute(
+            users.update()
+            .where(users.c.id == data.user_id)
+            .values({balance_col: balance_col + prize})
+        )
+
+        # Обновляем игру (win)
+        await database.execute(
+            games.update()
+            .where(games.c.id == data.session_id)
+            .values(result="win", win=True)
+        )
+
+        # Завершаем сессию
+        await database.execute(
+            safe_sessions.update()
+            .where(safe_sessions.c.id == data.session_id)
+            .values(attempts=updated_attempts, is_finished=True)
+        )
+
+        return {
+            "result": "win",
+            "prize": prize,
+            "code": correct_code
+        }
+
+    elif updated_attempts >= 3:
+        # Проигрыш
+        await database.execute(
+            games.update()
+            .where(games.c.id == data.session_id)
+            .values(result="lose", win=False)
+        )
+        await database.execute(
+            safe_sessions.update()
+            .where(safe_sessions.c.id == data.session_id)
+            .values(attempts=updated_attempts, is_finished=True)
+        )
+
+        return {
+            "result": "lose",
+            "code": correct_code
+        }
+
+    else:
+        # Просто увеличиваем attempts
+        await database.execute(
+            safe_sessions.update()
+            .where(safe_sessions.c.id == data.session_id)
+            .values(attempts=updated_attempts)
+        )
+
+        return {
+            "result": "try_again",
+            "attempts_left": 3 - updated_attempts
+        }
+
+@app.post("/safe/hint")
+async def safe_hint(data: SafeHint):
+    session = await database.fetch_one(safe_sessions.select().where(safe_sessions.c.id == data.session_id))
+    if not session:
+        raise HTTPException(status_code=404, detail="Сессия не найдена")
+    if session["is_finished"]:
+        raise HTTPException(status_code=400, detail="Игра уже завершена")
+    if session["used_hint"]:
+        raise HTTPException(status_code=400, detail="Подсказка уже использована")
+
+    currency = session["currency"]
+    bet = session["bet"]
+    hint_cost = round(bet / 3, 2)
+
+    balance_col = users.c.ton_balance if currency == "ton" else users.c.usdt_balance
+
+    # Проверка баланса
+    user_row = await database.fetch_one(users.select().where(users.c.id == data.user_id))
+    if not user_row:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    current_balance = user_row[balance_col.name]
+    if current_balance < hint_cost:
+        raise HTTPException(status_code=400, detail="Недостаточно средств для подсказки")
+
+    # Списываем стоимость подсказки
+    await database.execute(
+        users.update()
+        .where(users.c.id == data.user_id)
+        .values({balance_col: balance_col - hint_cost})
+    )
+
+    # Обновляем used_hint = True
+    await database.execute(
+        safe_sessions.update()
+        .where(safe_sessions.c.id == data.session_id)
+        .values(used_hint=True)
+    )
+
+    # Возвращаем первую правильную цифру
+    correct_code = session["code"]
+    hint_digit = correct_code[0]
+
+    return {
+        "hint": hint_digit,
+        "cost": hint_cost
+    }
