@@ -293,7 +293,11 @@ async def start_safe_game(data: SafeStart):
         )
     )
 
-    return {"session_id": session_id}
+    return {
+    "success": True,
+    "session_id": session_id
+}
+
 
 @app.post("/safe/guess")
 async def safe_guess(data: SafeGuess):
