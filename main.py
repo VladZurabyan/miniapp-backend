@@ -320,7 +320,7 @@ async def safe_guess(data: SafeGuess):
     updated_attempts = attempts + 1
 
     if is_win:
-        prize = bet * 3
+        prize = bet * 10
         balance_col = users.c.ton_balance if currency == "ton" else users.c.usdt_balance
 
         # Обновляем баланс
@@ -382,6 +382,8 @@ async def safe_guess(data: SafeGuess):
         }
 
 @app.post("/safe/hint")
+
+
 async def safe_hint(data: SafeHint):
     session = await database.fetch_one(safe_sessions.select().where(safe_sessions.c.id == data.session_id))
     if not session:
@@ -393,7 +395,8 @@ async def safe_hint(data: SafeHint):
 
     currency = session["currency"]
     bet = session["bet"]
-    hint_cost = round(bet / 3, 2)
+    hint_cost = 1.0
+
 
     balance_col = users.c.ton_balance if currency == "ton" else users.c.usdt_balance
 
