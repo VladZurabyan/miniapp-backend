@@ -439,3 +439,11 @@ async def safe_hint(data: SafeHint):
         "cost": hint_cost
     }
 
+@app.get("/health")
+async def health_check():
+    try:
+        await database.fetch_one("SELECT 1")
+        return {"status": "ok"}
+    except Exception as e:
+        logging.error(f"❌ Ошибка подключения к базе: {e}")
+        return {"status": "fail"}
