@@ -439,4 +439,12 @@ async def safe_hint(data: SafeHint):
         "cost": hint_cost
     }
 
+@app.get("/health")
+async def health_check():
+    try:
+        if not database.is_connected:
+            await database.connect()
+        return {"status": "ok"}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
 
