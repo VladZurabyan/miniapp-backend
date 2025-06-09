@@ -12,12 +12,3 @@ metadata = MetaData()
 engine = create_engine(DATABASE_URL)
 
 
-@app.get("/health")
-async def health_check():
-    try:
-        # Попытка запросить соединение
-        if not database.is_connected:
-            await database.connect()
-        return {"status": "ok"}
-    except Exception as e:
-        return {"status": "error", "detail": str(e)}
