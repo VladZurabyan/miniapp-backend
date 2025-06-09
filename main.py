@@ -242,6 +242,7 @@ async def start_safe_game(data: SafeStart):
 
     balance_col = users.c.ton_balance if currency == "ton" else users.c.usdt_balance
 
+    # Получаем пользователя и проверяем баланс
     user = await database.fetch_one(users.select().where(users.c.id == data.user_id))
     if not user:
         raise HTTPException(status_code=404, detail="Пользователь не найден")
@@ -250,12 +251,9 @@ async def start_safe_game(data: SafeStart):
     if current_balance < data.bet:
         raise HTTPException(status_code=400, detail="Недостаточно средств")
 
-    await database.execute(
-        users.update()
-        .where(users.c.id == data.user_id)
-        .values({balance_col: balance_col - data.bet})
-    )
+    # ❌ Удалено: списание баланса здесь
 
+    # Генерация кода и создание сессии
     code = [randint(0, 9) for _ in range(3)]
     session_id = str(uuid4())
 
@@ -272,9 +270,11 @@ async def start_safe_game(data: SafeStart):
         )
     )
 
+    # Обновляем кэш (баланс не менялся, но пусть будет)
     row = await database.fetch_one(users.select().where(users.c.id == data.user_id))
     user_balances_cache[str(data.user_id)] = {"ton": row["ton_balance"], "usdt": row["usdt_balance"]}
 
+    # Запись в таблицу games
     await database.execute(
         games.insert().values(
             id=session_id,
@@ -290,6 +290,7 @@ async def start_safe_game(data: SafeStart):
         "success": True,
         "session_id": session_id
     }
+
 
 @app.post("/safe/guess")
 async def safe_guess(data: SafeGuess):
