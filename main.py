@@ -11,9 +11,7 @@ import logging
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from models import users, games, safe_sessions  
-random.random()
-random.randint()
-random.choice()
+
 
 
 # ✅ Инициализация FastAPI
