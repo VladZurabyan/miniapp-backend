@@ -487,7 +487,7 @@ async def coin_start(data: CoinStart):
     )
 
     # 🎯 Вероятность победы — 2 из 12 (≈16.7%)
-    is_win = random() < (2 / 12)
+    is_win = random.random() < (2 / 12)
     result = data.choice if is_win else ("tails" if data.choice == "heads" else "heads")
     prize = round(data.bet * 2, 2) if is_win else 0.0
 
