@@ -452,7 +452,6 @@ async def safe_hint(data: SafeHint):
 
 
 
-from random import random
 
 @app.post("/coin/start")
 async def coin_start(data: CoinStart):
@@ -520,6 +519,65 @@ async def coin_start(data: CoinStart):
 
 
 
+
+
+@app.post("/boxes/start")
+async def boxes_start(data: BaseGameModel):  # с user_id, currency, bet
+    currency = data.currency.lower()
+    if currency not in ["ton", "usdt"]:
+        raise HTTPException(status_code=400, detail="Неверная валюта")
+
+    balance_col = users.c.ton_balance if currency == "ton" else users.c.usdt_balance
+
+    row = await database.fetch_one(users.select().where(users.c.id == data.user_id))
+    if not row:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    if row[balance_col.name] < data.bet:
+        raise HTTPException(status_code=400, detail="Недостаточно средств")
+
+    # 🧾 Списываем ставку
+    await database.execute(
+        users.update()
+        .where(users.c.id == data.user_id)
+        .values({balance_col: balance_col - data.bet})
+    )
+
+    chosen_box = randint(1, 3)
+    winning_box = randint(1, 3)
+    is_win = chosen_box == winning_box
+    prize = round(data.bet * 2, 2) if is_win else 0.0
+
+    if is_win:
+        await database.execute(
+            users.update()
+            .where(users.c.id == data.user_id)
+            .values({balance_col: balance_col + prize})
+        )
+
+    await database.execute(
+        games.insert().values(
+            id=str(uuid4()),
+            user_id=data.user_id,
+            game="Boxes",
+            bet=data.bet,
+            result=f"Выбрал {chosen_box}, приз в {winning_box}",
+            win=is_win
+        )
+    )
+
+    # 🧠 Кэш
+    new_row = await database.fetch_one(users.select().where(users.c.id == data.user_id))
+    user_balances_cache[str(data.user_id)] = {
+        "ton": new_row["ton_balance"],
+        "usdt": new_row["usdt_balance"]
+    }
+
+    return {
+        "win": is_win,
+        "prize": prize,
+        "chosenBox": chosen_box,
+        "winningBox": winning_box
+    }
 
 
 
