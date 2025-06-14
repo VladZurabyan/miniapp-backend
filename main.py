@@ -83,6 +83,13 @@ class CoinStart(BaseModel):
     bet: float
     choice: str     # "heads" или "tails"
 
+class BoxesRequest(BaseModel):
+    user_id: int
+    username: str
+    currency: str
+    bet: float
+    choice: int  # 👈 добавлен выбор коробки игроком (1, 2 или 3)
+
 
 # 🧠 Хранилище балансов в памяти
 user_balances_cache = {}
@@ -522,7 +529,7 @@ async def coin_start(data: CoinStart):
 
 
 @app.post("/boxes/start")
-async def boxes_start(data: BaseGameModel):  # с user_id, currency, bet
+async def boxes_start(data: BoxesRequest):
     currency = data.currency.lower()
     if currency not in ["ton", "usdt"]:
         raise HTTPException(status_code=400, detail="Неверная валюта")
@@ -542,7 +549,7 @@ async def boxes_start(data: BaseGameModel):  # с user_id, currency, bet
         .values({balance_col: balance_col - data.bet})
     )
 
-    chosen_box = randint(1, 3)
+    chosen_box = data.choice
     winning_box = randint(1, 3)
     is_win = chosen_box == winning_box
     prize = round(data.bet * 2, 2) if is_win else 0.0
