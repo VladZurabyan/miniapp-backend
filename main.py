@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from uuid import uuid4
-from random import random
+import random
 from db import database, metadata, engine
 import asyncio
 import logging
@@ -11,7 +11,10 @@ import logging
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from models import users, games, safe_sessions  
-from random import randint
+random.random()
+random.randint()
+random.choice()
+
 
 # ✅ Инициализация FastAPI
 app = FastAPI()
