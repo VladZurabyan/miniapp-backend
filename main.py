@@ -527,7 +527,6 @@ async def coin_start(data: CoinStart):
 
 
 
-
 @app.post("/boxes/start")
 async def boxes_start(data: BoxesRequest):
     currency = data.currency.lower()
@@ -549,9 +548,18 @@ async def boxes_start(data: BoxesRequest):
         .values({balance_col: balance_col - data.bet})
     )
 
+    # 🎯 Логика победы
     chosen_box = data.choice
-    winning_box = randint(1, 3)
-    is_win = chosen_box == winning_box
+    force_win = random.random() < 0.2  # 20%
+    regular_win = random.random() < 0.01  # 1%
+    is_win = force_win or regular_win
+
+    if is_win:
+        winning_box = chosen_box
+    else:
+        other_boxes = [b for b in [1, 2, 3] if b != chosen_box]
+        winning_box = random.choice(other_boxes)
+
     prize = round(data.bet * 2, 2) if is_win else 0.0
 
     if is_win:
@@ -561,6 +569,7 @@ async def boxes_start(data: BoxesRequest):
             .values({balance_col: balance_col + prize})
         )
 
+    # 📝 Запись игры
     await database.execute(
         games.insert().values(
             id=str(uuid4()),
@@ -572,7 +581,7 @@ async def boxes_start(data: BoxesRequest):
         )
     )
 
-    # 🧠 Кэш
+    # 🔄 Обновление кеша
     new_row = await database.fetch_one(users.select().where(users.c.id == data.user_id))
     user_balances_cache[str(data.user_id)] = {
         "ton": new_row["ton_balance"],
@@ -585,6 +594,7 @@ async def boxes_start(data: BoxesRequest):
         "chosenBox": chosen_box,
         "winningBox": winning_box
     }
+
 
 
 
