@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from uuid import uuid4
+from random import random
 from db import database, metadata, engine
 import asyncio
 import logging
@@ -74,6 +75,13 @@ class SafeGuess(BaseModel):
 class SafeHint(BaseModel):
     session_id: str
     user_id: int
+
+class CoinStart(BaseModel):
+    user_id: int
+    username: str
+    currency: str  # "ton" или "usdt"
+    bet: float
+    choice: str     # "heads" или "tails"
 
 
 # 🧠 Хранилище балансов в памяти
@@ -438,6 +446,105 @@ async def safe_hint(data: SafeHint):
         "hint": hint_digit,
         "cost": hint_cost
     }
+
+
+
+
+
+
+from random import random
+
+@app.post("/coin/start")
+async def coin_start(data: CoinStart):
+    if data.choice not in ["heads", "tails"]:
+        raise HTTPException(status_code=400, detail="Сторона может быть только 'heads' или 'tails'")
+
+    currency = data.currency.lower()
+    if currency not in ["ton", "usdt"]:
+        raise HTTPException(status_code=400, detail="Неверная валюта")
+
+    balance_col = users.c.ton_balance if currency == "ton" else users.c.usdt_balance
+
+    # 🔍 Проверка пользователя и баланса
+    row = await database.fetch_one(users.select().where(users.c.id == data.user_id))
+    if not row:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    if row[balance_col.name] < data.bet:
+        raise HTTPException(status_code=400, detail="Недостаточно средств")
+
+    # 💳 Списываем ставку
+    await database.execute(
+        users.update()
+        .where(users.c.id == data.user_id)
+        .values({balance_col: balance_col - data.bet})
+    )
+
+    # 🎯 Вероятность победы — 2 из 12 (≈16.7%)
+    is_win = random() < (2 / 12)
+    result = data.choice if is_win else ("tails" if data.choice == "heads" else "heads")
+    prize = round(data.bet * 2, 2) if is_win else 0.0
+
+    # 💰 Если выиграл — начисляем приз
+    if is_win:
+        await database.execute(
+            users.update()
+            .where(users.c.id == data.user_id)
+            .values({balance_col: balance_col + prize})
+        )
+
+    # 🧾 Записываем игру
+    await database.execute(
+        games.insert().values(
+            id=str(uuid4()),
+            user_id=data.user_id,
+            game="Coin",
+            bet=data.bet,
+            result="win" if is_win else "lose",
+            win=is_win
+        )
+    )
+
+    # 🔁 Обновляем кэш
+    new_row = await database.fetch_one(users.select().where(users.c.id == data.user_id))
+    user_balances_cache[str(data.user_id)] = {
+        "ton": new_row["ton_balance"],
+        "usdt": new_row["usdt_balance"]
+    }
+
+    return {
+        "result": result,   # "heads" / "tails"
+        "win": is_win,
+        "prize": prize
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 @app.get("/health")
 async def health_check():
